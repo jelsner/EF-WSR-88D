@@ -1,6 +1,8 @@
 ---
 title: "Estimating EF Rating Probabilities from WSR-88D Signatures"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 Email from Ariel Cohen: July 28, 2019
@@ -20,3 +22,196 @@ Provided data are as follows:
 While the tornado wind speed model used linear regression, the tornado probability model -- using a larger dataset incorporating nulls -- uses binary logistic regression analysis.  For both models, page 1102 of the publication explains the process by which we retained only the variables offering the greatest explanatory power for the respective model based on the computed P-value.  However, I'm providing you with all relevant variables, as I don't want to make any a priori assumptions about what would need to be retained or removed for the purposes of your modeling.  More details are addressed in the publication: https://journals.ametsoc.org/doi/pdf/10.1175/WAF-D-17-0170.1
 
 I saved the tabs as separate csv files called `Testing.csv` and `Trainning.csv`.
+
+Read the data and rename the columns. Add an EF rating column.  TWS = 75 (EF0), 98 (EF1), 123 (EF2), 151 (EF3), 183 (EF4) 
+```{r}
+Training.df <- read.csv(file = "Training.csv", 
+                        header = TRUE)
+names(Training.df) <- c('Height', 'Velocity', 'Width', 'Clarity', 'STP', 'TDS', 'TWS')
+
+Testing.df <- read.csv(file = "Testing.csv", 
+                        header = TRUE)
+names(Testing.df) <- c('Height', 'Velocity', 'Width', 'Clarity', 'STP', 'TDS', 'TWS')
+
+library(dplyr) 
+Training.df <- Training.df %>%
+  mutate(EF = ifelse(TWS == 75, 0, 
+                     ifelse(TWS == 98, 1,
+                            ifelse(TWS == 123, 2,
+                                   ifelse(TWS == 151, 3, 
+                                          ifelse(TWS == 183, 4, 5))))))
+Testing.df <- Testing.df %>%
+  mutate(EF = ifelse(TWS == 75, 0, 
+                     ifelse(TWS == 98, 1,
+                            ifelse(TWS == 123, 2,
+                                   ifelse(TWS == 151, 3, 
+                                          ifelse(TWS == 183, 4, 5))))))
+```
+
+### Describing the ordered distribution of EF ratings with intercepts
+
+We begin with a histogram of EF rating per tornado. 
+```{r}
+plot.df <- data.frame(table(Training.df$EF), Data = "Training")
+names(plot.df) <- c("EF", "Frequency", "Data")
+plot2.df <- data.frame(table(Testing.df$EF), Data = "Testing")
+names(plot2.df) <- c("EF", "Frequency", "Data")
+plot.df <- rbind(plot.df, plot2.df)
+
+library(ggplot2)
+( p1 <- ggplot(plot.df, aes(x = EF, y = Frequency)) + 
+  geom_point() + 
+  geom_segment(aes(xend = EF, yend = 0)) +
+  xlab("EF Rating") +
+  facet_wrap(~ Data) +
+  theme_minimal() )
+```
+
+Next we describe the histogram on the log-cumulative-odds scale by constructing the odds of a cumulative probability and then taking logarithms. Since the logit is log-odds, the cumulative logit is log-cumulative-odds. Both the logit and cumulative logit constrain the probabilities to the interval between 0 and 1. When we add predictor variables, we do so on the cumulative logit scale. The link function takes care of converting the parameter estimates to the proper probability scale.
+
+We first compute the cumulative probabilities from the histogram. The discrete proportion of each EF ranking.
+```{r}
+pr_k_train <- as.vector(table(Training.df$EF) / nrow(Training.df))
+pr_k_test <- as.vector(table(Testing.df$EF) / nrow(Testing.df))
+cum_pr_k_train <- cumsum(pr_k_train)
+cum_pr_k_test <- cumsum(pr_k_test)
+
+plot.df <- data.frame(EF = 0:4, pr_k_train, cum_pr_k_train, pr_k_test, cum_pr_k_test)
+
+( p2 <- ggplot(plot.df, aes(x = EF, y = cum_pr_k_train)) +
+  geom_point(color = "gray70") +
+  geom_line(color = "gray70") +
+  geom_point(aes(y = cum_pr_k_test)) +
+  geom_line(aes(y = cum_pr_k_test)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  scale_x_continuous(minor_breaks = 0:5) +
+    xlab("EF Rating") +
+    ylab("Cumulative Proportion") +
+  theme_minimal()
+)
+```
+
+Then to re-describe the histogram as log-cumulative odds, we need a series of intercept parameters. Each intercept will be on the log-cumulative-odds scale and stand in for the cumulative probability of each rating.
+$$
+\log \frac{\Pr(y_i \le k)}{1 - \Pr(y_i \le k)} = \alpha_k
+$$
+where $\alpha_k$ is an 'intercept' unique to each possible EF rating $k$. 
+
+We compute these intercept parameters directly.
+```{r}
+( lco_train <- rethinking::logit(cum_pr_k_train) )
+( lco_test <- rethinking::logit(cum_pr_k_test) )
+
+plot.df$lco_train <- lco_train
+plot.df$lco_test <- lco_test
+
+( p3 <- ggplot(plot.df[1:4, ], aes(x = EF, y = lco_train)) +
+  geom_point(color = "gray70") +
+  geom_line(color = "gray70") +
+  geom_point(aes(y = lco_test)) +
+  geom_line(aes(y = lco_test)) +
+  scale_y_continuous() +
+  scale_x_continuous(minor_breaks = 0:4) +
+  xlab("Maximum EF Rating") +
+  ylab("Log-Cumulative-Odds") +
+  theme_minimal()
+)
+```
+
+What we really want is the posterior distribution of these intercepts. This allows us to take into account sample size and prior information, as well as insert predictor variables.
+
+To use Bayes' theorem to compute the posterior distribution of these intercepts, we will need to compute the likelihood for each possible EF rating. So the last step in constructing the basic model fitting engine for these ordered categorical outcomes is to use cumulative probabilities $\Pr(y_i \le k)$ to compute the likelihood $\Pr(y_i = k)$.
+
+```{r}
+plot.df$ys <-  plot.df$cum_pr_k_train - plot.df$pr_k_train
+
+ggplot(plot.df, aes(x = EF, y = cum_pr_k_train)) +
+  geom_segment(aes(x = EF, xend = EF, y = ys, yend = cum_pr_k_train), size = 1.3, color = "gray70") +
+  geom_point() +
+  geom_line() +
+  scale_y_continuous(limits = c(0, 1)) +
+    xlab("EF Rating") +
+    ylab("Cumulative Proportion") +
+  theme_minimal()
+```
+
+Cumulative probability and ordered likelihood. The horizontal axis displays possible observable damage ratings, from 0 through 4. The vertical axis displays cumulative probability. The points show cumulative probability. These keep getting higher with each successive EF rating. The gray line segments show the discrete probability of each EF rating. These are the likelihoods that go into Bayes’ theorem.
+
+In code form
+$$
+\begin{aligned} 
+\hbox{R}_i &\sim \hbox{Ordered}(\mathbf{p}) \\ 
+\hbox{logit}(p_k) &= \alpha_k \\
+\alpha_k &\sim \hbox{Normal}(0, 10)
+\end{aligned}
+$$
+
+The Ordered distribution is a categorical distribution that takes a vector $p = \{p_0, p_1, p_2, p_3\}$ of probabilities for each EF rating below the highest (EF4). Each response value $k$ in this vector is defined by its link to an intercept parameter ($\alpha_k$). 
+
+To include predictor variables, we define the log-cumulative-odds of each EF rating $k$ as a sum of its intercept $\alpha_k$ and a typical linear model. Suppose for example we want to add a predictor $x$ to the model. We do this by defining a linear model $\phi_i = \beta x_i$. Then each cumulative logit becomes
+$$
+\begin{aligned}
+\log \frac{\Pr(y_i \le k)}{1 - \Pr(y_i \le k)} &= \alpha_k - \phi_i \\
+\phi_i &= \beta x_i
+\end{aligned}
+$$
+
+The form ensures the correct ordering of the EF ratings while allowing for changes in the likelihood of each individual value as the predictor $x_i$ changes value. As the log-cumulative odds of every EF value ($k$) below the maximum decreases, the probability mass shifts upwards toward higher EF ratings.
+
+\[
+\phi_i = \beta_{H}H_i + \beta_V V_i + \beta_{W}W_i + \beta_{C}C_i + \beta_{STP} STP_i + \beta_{TDS}TDS_i
+\]
+
+where:
+- H: Height above radar level,
+- V: Peak average rotational velocity,
+- W: Circulation width,
+- C: Clarity of circulation (0 or 1),
+- STP: Effective-Layer Significant Tornado Parameter, and 
+- TDS: presence or absence of tornadic debris signature.
+
+Create scaled variables.
+```{r}
+Training.df$Heights <- scale(Training.df$Height)
+Training.df$Velocitys <- scale(Training.df$Velocity)
+Training.df$Widths <- scale(Training.df$Width)
+Training.df$STPs <- scale(Training.df$STP)
+Training.df$EF1 <- Training.df$EF + 1 # can not use 0
+```
+
+Use the **brms** package.
+
+Start by setting the family and the model formula. Get priors. 
+```{r}
+library(brms)
+family <- brms::cumulative(threshold = "flexible")
+formula <- EF1 ~ 1
+
+get_prior(formula, data = Training.df, family = family)
+
+prior <- brm(formula = formula,
+           data = Training.df,
+           family = family,
+           prior = set_prior("student_t(3, 0, 10)", class = "Intercept"),
+           sample_prior = "only",
+           seed = 3578)
+prior_out <- predict(prior, probs = c(0, 1))
+head(prior_out)
+
+fit0 <- brm(formula = formula,
+           data = Training.df,
+           family = family,
+           prior = set_prior("student_t(7, 0, 10)", class = "Intercept"),
+           seed = 45890)
+fixef(fit0)
+
+fit0_out <- predict(fit0, probs = c(0, 1))
+head(fit0_out)
+```
+
+Since there are a lot of tornadoes, the posterior for each intercept is quite precisely estimated, as we can see from the small standard deviations. To get cumulative probabilities back:
+```{r}
+rethinking::logistic(fixef(fit0))
+```
+
+These are the same (nearly) as the values in `cum_pr_k_train` that we computed above. But now we also have a posterior distribution around these values, and we’re ready to add predictor variables to the model.
