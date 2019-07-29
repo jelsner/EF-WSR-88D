@@ -1,0 +1,22 @@
+---
+title: "Estimating EF Rating Probabilities from WSR-88D Signatures"
+output: html_document
+---
+
+Email from Ariel Cohen: July 28, 2019
+
+Please see the attached Excel spreadsheet, which contains two tabs. The first tab contains 1025 entries corresponding to the 1025 tornado events which we used to train the tornado wind speed model.  The second tab contains 498 entries corresponding to the 498 tornado events we used as an independent dataset on which to test the model.  
+
+Provided data are as follows:
+
+- Height above radar level,
+- Peak average rotational velocity,
+- Circulation width,
+- Clarity of circulation (0 or 1),
+- Effective-Layer Significant Tornado Parameter, and 
+- presence or absence of tornadic debris signature.
+-The final column is the representative wind speed for the corresponding tornado rating -- determined by averaging wind speeds within the rating bin.
+
+While the tornado wind speed model used linear regression, the tornado probability model -- using a larger dataset incorporating nulls -- uses binary logistic regression analysis.  For both models, page 1102 of the publication explains the process by which we retained only the variables offering the greatest explanatory power for the respective model based on the computed P-value.  However, I'm providing you with all relevant variables, as I don't want to make any a priori assumptions about what would need to be retained or removed for the purposes of your modeling.  More details are addressed in the publication: https://journals.ametsoc.org/doi/pdf/10.1175/WAF-D-17-0170.1
+
+I saved the tabs as separate csv files called `Testing.csv` and `Trainning.csv`.
