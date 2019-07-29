@@ -12,7 +12,7 @@ Please see the attached Excel spreadsheet, which contains two tabs. The first ta
 Provided data are as follows:
 
 - Height above radar level,
-- Peak average rotational velocity,
+- Peak average rotational velocity (knots?)
 - Circulation width,
 - Clarity of circulation (0 or 1),
 - Effective-Layer Significant Tornado Parameter, and 
@@ -179,6 +179,22 @@ Training.df$STPs <- scale(Training.df$STP)
 Training.df$EF1 <- Training.df$EF + 1 # can not use 0
 ```
 
+Use a OLS regression. Compare w/ Table 2 of Cohen et al. (2018) https://journals.ametsoc.org/doi/pdf/10.1175/WAF-D-17-0170.1
+```{r}
+summary(lm(TWS ~ Height + Velocity * Clarity  + STP + TDS, data = Training.df))
+
+Both.df <- data.frame(Height = c(Training.df$Height, Testing.df$Height),
+                 Velocity = c(Training.df$Velocity, Testing.df$Velocity),
+                 Width = c(Training.df$Width, Testing.df$Width),
+                 Clarity = c(Training.df$Clarity, Testing.df$Clarity),
+                 STP = c(Training.df$STP, Testing.df$STP),
+                 TDS = c(Training.df$TDS, Testing.df$TDS),
+                 TWS = c(Training.df$TWS, Testing.df$TWS))
+
+summary(lm(TWS ~ Height + Velocity + Width + Clarity + STP + TDS, data = Both.df))
+
+```
+
 Use the **brms** package.
 
 Start by setting the family and the model formula. Get priors. 
@@ -215,3 +231,127 @@ rethinking::logistic(fixef(fit0))
 ```
 
 These are the same (nearly) as the values in `cum_pr_k_train` that we computed above. But now we also have a posterior distribution around these values, and we’re ready to add predictor variables to the model.
+
+### Model with predictors. 
+
+Start with some default priors (for example `"normal(0,5)"` for the `class = "b"`). Sample from the priors and check the predictive distribution of the response. Adjust the priors accordingly. https://github.com/stan-dev/stan/wiki/Prior-Choice-Recommendations  
+```{r}
+family <- brms::cumulative(threshold = "flexible")
+formula <- EF1 ~ Heights + Velocitys + Widths + Clarity + STPs + TDS
+
+formula <- EF1 ~ Heights + Velocitys * Clarity + STPs + TDS
+
+
+get_prior(formula, data = Training.df, family = family)
+
+prior2 <- brm(formula = formula,
+           data = Training.df,
+           family = family,
+           prior = c(set_prior("normal(0, 7)", class = "b"),
+                     set_prior("student_t(3, 0, 10)", class = "Intercept")),
+           sample_prior = "only",
+           control = list(max_treedepth = 15),
+           seed = 5783)
+prior_out2 <- predict(prior2, probs = c(0, 1))
+head(prior_out2)
+```
+
+Fit the model.
+```{r}
+fit2 <- brm(formula = formula,
+            data = Training.df,
+            family = family,
+            prior = c(set_prior("normal(0, 7)", class = "b"),
+                     set_prior("student_t(3, 0, 10)", class = "Intercept")),
+           seed = 75121)
+
+fixef(fit1)
+
+fit1_out <- predict(fit1, probs = c(0, 1))
+# stancode(fit1)
+```
+
+```{r}
+library(lme4)
+library(bayestestR)
+equivalence_test(fit1)
+```
+
+Posterior predictive counts versus the observed counts.
+```{r}
+library(tidybayes)
+
+predicted <- Training.df %>%
+  dplyr::select(Heights, Velocitys, Widths, Clarity, STPs, TDS) %>%
+  add_predicted_draws(fit2)
+
+table(Training.df$EF1)/nrow(Training.df)
+table(predicted$.prediction)/nrow(predicted)
+
+EFp <- predicted %>%
+  filter(.draw == 3) %>%
+  pull(.prediction) %>%
+  as.numeric()
+cor(EFp, Training.df$EF1)
+
+cc.df <- predicted %>%
+  group_by(.draw) %>%
+  summarize(cc = cor(as.numeric(.prediction), Training.df$EF1))
+
+ggplot(cc.df, aes(cc)) +
+  geom_density()
+```
+
+
+
+Add a plot. Fixed effects. Highest density interval.
+```{r}
+( p4 <- fit1 %>%
+  gather_draws(b_Heights, b_Velocitys, b_Widths, b_STPs) %>%
+  median_hdi(.width = c(.95, .66)) %>%
+  ggplot(aes(y = .variable, x = .value, xmin = .lower, xmax = .upper)) +
+  geom_pointintervalh() +
+  geom_vline(xintercept = 0, col = "gray70") +
+#  scale_y_discrete(labels = c("Height", "Velocity", "Widths", "STP")) +
+#  scale_x_continuous(limits = c(-.2, NA), breaks = c(-.2, 0, .2)) +
+  ylab("") + xlab("Coefficient Value") +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) 
+  )
+```
+
+Marginal plot. Velocity.
+```{r}
+gg <- marginal_effects(fit1, categorical = TRUE)
+ggV <- gg[[2]]
+levels(ggV$cats__) <- c("0", "1", "2", "3", "4")
+
+Vs <- scale(Training.df$Velocity)
+scale <- attr(Vs, "scaled:scale")
+center <- attr(Vs, "scaled:center")
+
+ggV <- ggV %>%
+  mutate(V = Velocitys * scale + center)
+
+( p5 <- ggplot(ggV, aes(x = V, y = estimate__, col = cats__)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower__, ymax = upper__, fill = cats__), 
+              alpha = .7, col = NA) +
+  scale_color_brewer(name = "EF", label = c("0", "1", "2", "3", "4"), palette = "Blues") +
+  scale_fill_brewer(name = "EF", label = c("0", "1", "2", "3", "4"), palette = "Blues") +
+  scale_y_continuous(limits = c(0, 1)) +
+  ylab("Probability") +
+  xlab("Rotational Velocity (kt)") +
+  ggtitle(label = "Marginal effect of WSR-88D estimated peak rotational velocities on the chance of EF-level damage") +
+  theme_minimal() )
+```
+
+Test the hypothesis that Velocity is more important that TDS. It is not. Even though with an OLS we find that Velocity has a smaller p value.
+```{r}
+(hyp <- hypothesis(fit1, "Velocitys > TDS", class = "b"))
+plot(hyp)
+
+hypothesis(fit1, "dists < 0", class = "b")
+```
+
