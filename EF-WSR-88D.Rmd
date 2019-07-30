@@ -181,7 +181,7 @@ Training.df$EF1 <- Training.df$EF + 1 # can not use 0
 
 Use a OLS regression. Compare w/ Table 2 of Cohen et al. (2018) https://journals.ametsoc.org/doi/pdf/10.1175/WAF-D-17-0170.1
 ```{r}
-summary(lm(TWS ~ Height + Velocity * Clarity  + STP + TDS, data = Training.df))
+summary(lm(TWS ~ Height + Velocity  + STP + TDS, data = Training.df))
 
 Both.df <- data.frame(Height = c(Training.df$Height, Testing.df$Height),
                  Velocity = c(Training.df$Velocity, Testing.df$Velocity),
@@ -237,14 +237,14 @@ These are the same (nearly) as the values in `cum_pr_k_train` that we computed a
 Start with some default priors (for example `"normal(0,5)"` for the `class = "b"`). Sample from the priors and check the predictive distribution of the response. Adjust the priors accordingly. https://github.com/stan-dev/stan/wiki/Prior-Choice-Recommendations  
 ```{r}
 family <- brms::cumulative(threshold = "flexible")
-formula <- EF1 ~ Heights + Velocitys + Widths + Clarity + STPs + TDS
+formula <- EF1 ~ Heights + Velocitys + STPs + TDS
 
-formula <- EF1 ~ Heights + Velocitys * Clarity + STPs + TDS
+#formula <- EF1 ~ Heights + Velocitys * Clarity + STPs + TDS
 
 
 get_prior(formula, data = Training.df, family = family)
 
-prior2 <- brm(formula = formula,
+prior <- brm(formula = formula,
            data = Training.df,
            family = family,
            prior = c(set_prior("normal(0, 7)", class = "b"),
@@ -252,13 +252,13 @@ prior2 <- brm(formula = formula,
            sample_prior = "only",
            control = list(max_treedepth = 15),
            seed = 5783)
-prior_out2 <- predict(prior2, probs = c(0, 1))
-head(prior_out2)
+prior_out <- predict(prior, probs = c(0, 1))
+head(prior_out)
 ```
 
 Fit the model.
 ```{r}
-fit2 <- brm(formula = formula,
+fit1 <- brm(formula = formula,
             data = Training.df,
             family = family,
             prior = c(set_prior("normal(0, 7)", class = "b"),
@@ -282,8 +282,8 @@ Posterior predictive counts versus the observed counts.
 library(tidybayes)
 
 predicted <- Training.df %>%
-  dplyr::select(Heights, Velocitys, Widths, Clarity, STPs, TDS) %>%
-  add_predicted_draws(fit2)
+  dplyr::select(Heights, Velocitys, STPs, TDS) %>%
+  add_predicted_draws(fit1)
 
 table(Training.df$EF1)/nrow(Training.df)
 table(predicted$.prediction)/nrow(predicted)
@@ -302,17 +302,15 @@ ggplot(cc.df, aes(cc)) +
   geom_density()
 ```
 
-
-
 Add a plot. Fixed effects. Highest density interval.
 ```{r}
 ( p4 <- fit1 %>%
-  gather_draws(b_Heights, b_Velocitys, b_Widths, b_STPs) %>%
+  gather_draws(b_Heights, b_Velocitys, b_STPs) %>%
   median_hdi(.width = c(.95, .66)) %>%
   ggplot(aes(y = .variable, x = .value, xmin = .lower, xmax = .upper)) +
   geom_pointintervalh() +
   geom_vline(xintercept = 0, col = "gray70") +
-#  scale_y_discrete(labels = c("Height", "Velocity", "Widths", "STP")) +
+#  scale_y_discrete(labels = c("Height", "Velocity", "STP")) +
 #  scale_x_continuous(limits = c(-.2, NA), breaks = c(-.2, 0, .2)) +
   ylab("") + xlab("Coefficient Value") +
   theme_minimal() +
@@ -353,5 +351,18 @@ Test the hypothesis that Velocity is more important that TDS. It is not. Even th
 plot(hyp)
 
 hypothesis(fit1, "dists < 0", class = "b")
+```
+
+### Tidybayes on github (latest and greatest)
+```{r}
+devtools::install_github("mjskay/tidybayes")
+library(tidybayes)
+```
+
+```{r}
+x <- fit1 %>%
+  spread_draws(b_Heights) %>%
+  ggplot(aes(x = .draw, y = b_Heights)) +
+  geom_halfeyeh(.width = c(.99, .8))
 ```
 
