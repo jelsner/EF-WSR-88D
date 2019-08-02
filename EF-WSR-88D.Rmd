@@ -302,6 +302,28 @@ ggplot(cc.df, aes(cc)) +
   geom_density()
 ```
 
+Prediction on the testing data set.
+```{r}
+Testing.df$Heights <- scale(Testing.df$Height)
+Testing.df$Velocitys <- scale(Testing.df$Velocity)
+Testing.df$Widths <- scale(Testing.df$Width)
+Testing.df$STPs <- scale(Testing.df$STP)
+Testing.df$EF1 <- Testing.df$EF + 1 # can not use 0
+
+predictedTesting <- Testing.df %>%
+  dplyr::select(Heights, Velocitys, STPs, TDS) %>%
+  add_predicted_draws(fit1)
+
+cc.df <- predictedTesting %>%
+  group_by(.draw) %>%
+  summarize(cc = cor(as.numeric(.prediction), Testing.df$EF1))
+
+ggplot(cc.df, aes(cc)) +
+  geom_density()
+```
+
+
+
 Add a plot. Fixed effects. Highest density interval.
 ```{r}
 ( p4 <- fit1 %>%
