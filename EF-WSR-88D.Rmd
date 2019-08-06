@@ -170,15 +170,6 @@ where:
 - STP: Effective-Layer Significant Tornado Parameter, and 
 - TDS: presence or absence of tornadic debris signature.
 
-Create scaled variables.
-```{r}
-Training.df$Heights <- scale(Training.df$Height)
-Training.df$Velocitys <- scale(Training.df$Velocity)
-Training.df$Widths <- scale(Training.df$Width)
-Training.df$STPs <- scale(Training.df$STP)
-Training.df$EF1 <- Training.df$EF + 1 # can not use 0
-```
-
 Use a OLS regression. Compare w/ Table 2 of Cohen et al. (2018) https://journals.ametsoc.org/doi/pdf/10.1175/WAF-D-17-0170.1
 ```{r}
 summary(lm(TWS ~ Height + Velocity  + STP + TDS, data = Training.df))
@@ -189,9 +180,25 @@ Both.df <- data.frame(Height = c(Training.df$Height, Testing.df$Height),
                  Clarity = c(Training.df$Clarity, Testing.df$Clarity),
                  STP = c(Training.df$STP, Testing.df$STP),
                  TDS = c(Training.df$TDS, Testing.df$TDS),
-                 TWS = c(Training.df$TWS, Testing.df$TWS))
+                 TWS = c(Training.df$TWS, Testing.df$TWS),
+                 EF = c(Training.df$EF, Testing.df$EF))
 
-summary(lm(TWS ~ Height + Velocity + Width + Clarity + STP + TDS, data = Both.df))
+summary(lm(TWS ~ Height + Velocity + STP + TDS, data = Both.df))
+```
+
+Create scaled variables.
+```{r}
+Training.df$Heights <- scale(Training.df$Height)
+Training.df$Velocitys <- scale(Training.df$Velocity)
+Training.df$Widths <- scale(Training.df$Width)
+Training.df$STPs <- scale(Training.df$STP)
+Training.df$EF1 <- Training.df$EF + 1 # can not use 0
+
+Both.df$Heights <- scale(Both.df$Height)
+Both.df$Velocitys <- scale(Both.df$Velocity)
+Both.df$Widths <- scale(Both.df$Width)
+Both.df$STPs <- scale(Both.df$STP)
+Both.df$EF1 <- Both.df$EF + 1 # can not use 0
 
 ```
 
@@ -201,6 +208,7 @@ Start by setting the family and the model formula. Get priors.
 ```{r}
 library(brms)
 family <- brms::cumulative(threshold = "flexible")
+
 formula <- EF1 ~ 1
 
 get_prior(formula, data = Training.df, family = family)
@@ -322,8 +330,6 @@ ggplot(cc.df, aes(cc)) +
   geom_density()
 ```
 
-
-
 Add a plot. Fixed effects. Highest density interval.
 ```{r}
 ( p4 <- fit1 %>%
@@ -374,6 +380,34 @@ plot(hyp)
 
 hypothesis(fit1, "dists < 0", class = "b")
 ```
+
+Email from Ariel on August 2. Hi Jim,
+
+Thank you very much for your work -- this is very impressive what you've already put together.  This is exactly the behavior I would expect -- maximum marginal effects (peak probability gains) that shift rightward (toward higher Vrot) with increasing rating.  Moreover, the fact that EF3s and EF4s produced higher probabilities by a difference of 25-50% for the technique you used over the linear model suggests that indeed your approach does effectively produce results that account for differential sample sizes among ratings.
+
+I fully agree with the hypothesis that incorporating distance to cities would support an improved model (more damage indicators / greater sample size), and perhaps consideration of the STP components.  I think this would be very interesting work to pursue.
+
+While I don't presently have access to the funds necessary to accomplish this work right now, would there be a functional form/equation that you would be willing to share with us in the meantime to produce output from this model -- that we could potentially use in an operational/applied mode, even without immediately pursuing avenues requiring funding?
+
+Also, would there be any possible way that the modeling scheme you used to generate this figure be applied in a manner that produces estimated wind speeds explicitly (as opposed to rating probabilities)?
+
+Again, thank you very much for your additional work with this already.  This is fantastic!
+
+
+Fit the model to the full data.
+```{r}
+formula <- EF1 ~ Heights + Velocitys + STP + TDS
+fit2 <- brm(formula = formula,
+            data = Both.df,
+            family = family,
+            prior = c(set_prior("normal(0, 7)", class = "b"),
+                     set_prior("student_t(3, 0, 10)", class = "Intercept")),
+           seed = 776521)
+
+fixef(fit2)
+```
+
+
 
 ### Tidybayes on github (latest and greatest)
 ```{r}
