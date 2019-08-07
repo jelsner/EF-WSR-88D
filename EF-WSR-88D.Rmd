@@ -199,7 +199,6 @@ Both.df$Velocitys <- scale(Both.df$Velocity)
 Both.df$Widths <- scale(Both.df$Width)
 Both.df$STPs <- scale(Both.df$STP)
 Both.df$EF1 <- Both.df$EF + 1 # can not use 0
-
 ```
 
 Use the **brms** package.
@@ -377,8 +376,6 @@ Test the hypothesis that Velocity is more important that TDS. It is not. Even th
 ```{r}
 (hyp <- hypothesis(fit1, "Velocitys > TDS", class = "b"))
 plot(hyp)
-
-hypothesis(fit1, "dists < 0", class = "b")
 ```
 
 Email from Ariel on August 2. Hi Jim,
@@ -407,15 +404,15 @@ fit2 <- brm(formula = formula,
 fixef(fit2)
 ```
 
-
+![Operational](CLR_model_for_predictions.pdf){width=95%}
 
 ### Tidybayes on github (latest and greatest)
-```{r}
+```{r, eval=FALSE}
 devtools::install_github("mjskay/tidybayes")
 library(tidybayes)
 ```
 
-```{r}
+```{r, eval=FALSE}
 x <- fit1 %>%
   spread_draws(b_Heights) %>%
   ggplot(aes(x = .draw, y = b_Heights)) +
