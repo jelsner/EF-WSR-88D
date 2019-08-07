@@ -378,7 +378,7 @@ Test the hypothesis that Velocity is more important that TDS. It is not. Even th
 plot(hyp)
 ```
 
-Email from Ariel on August 2. Hi Jim,
+Email from Ariel on August 2.
 
 Thank you very much for your work -- this is very impressive what you've already put together.  This is exactly the behavior I would expect -- maximum marginal effects (peak probability gains) that shift rightward (toward higher Vrot) with increasing rating.  Moreover, the fact that EF3s and EF4s produced higher probabilities by a difference of 25-50% for the technique you used over the linear model suggests that indeed your approach does effectively produce results that account for differential sample sizes among ratings.
 
@@ -388,8 +388,7 @@ While I don't presently have access to the funds necessary to accomplish this wo
 
 Also, would there be any possible way that the modeling scheme you used to generate this figure be applied in a manner that produces estimated wind speeds explicitly (as opposed to rating probabilities)?
 
-Again, thank you very much for your additional work with this already.  This is fantastic!
-
+Again, thank you very much for your additional work with this already. This is fantastic!
 
 Fit the model to the full data.
 ```{r}
@@ -418,4 +417,3 @@ x <- fit1 %>%
   ggplot(aes(x = .draw, y = b_Heights)) +
   geom_halfeyeh(.width = c(.99, .8))
 ```
-
