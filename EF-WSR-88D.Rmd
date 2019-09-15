@@ -368,7 +368,7 @@ ggV <- ggV %>%
   scale_y_continuous(limits = c(0, 1)) +
   ylab("Probability") +
   xlab("Rotational Velocity (kt)") +
-  ggtitle(label = "Marginal effect of WSR-88D estimated peak rotational velocities on the chance of EF-level damage") +
+  ggtitle(label = "Marginal effect of WSR-88D peak rotational velocities\non the chance of EF-level damage") +
   theme_minimal() )
 ```
 
